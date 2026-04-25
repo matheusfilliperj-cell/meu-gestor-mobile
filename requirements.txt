@@ -4,3 +4,5 @@ openpyxl
 fpdf2
 easyocr
 opencv-python-headless
+Pillow
+numpy
