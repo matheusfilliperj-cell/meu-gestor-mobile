@@ -8,72 +8,68 @@ from io import BytesIO
 import re
 
 # --- INTERFACE ---
-st.set_page_config(page_title="Gestor Leads Pro", layout="centered")
+st.set_page_config(page_title="Gestor de Leads", layout="centered")
 
-st.title("🚀 Gestor de Leads Inteligente")
-st.markdown("### Leitor de Fotos Ultra-Robusto")
+st.title("Gestor de Leads")
 
-# Função de extração "Blindada"
+# Função de extração cirúrgica via Âncora de DDD
 def extrair_dados_da_foto(imagem):
-    # Pré-processamento da imagem para melhorar o OCR (Cinza e Contraste)
+    # Otimização de imagem para contraste máximo
     imagem = ImageOps.grayscale(imagem)
+    imagem = ImageOps.autocontrast(imagem)
     texto_extraido = pytesseract.image_to_string(imagem, lang='por')
     linhas = texto_extraido.split('\n')
     
     lista_organizada = []
     
     for linha in linhas:
-        # 1. Limpa tudo que não é número para validar o telefone
-        numeros_apenas = "".join(re.findall(r'\d+', linha))
-        
-        # 2. VALIDAÇÃO ROBUSTA: 
-        # No Brasil, um lead útil com DDD tem 10 (fixo) ou 11 (celular) dígitos.
-        # Ignoramos qualquer linha que tenha menos de 10 ou mais de 12 (ruído/datas)
-        if 10 <= len(numeros_apenas) <= 11:
-            # Formata para exibição: (XX) XXXXX-XXXX
-            ddd = numeros_apenas[:2]
-            resto = numeros_apenas[2:]
-            if len(resto) == 9: # Celular
-                tel_formatado = f"({ddd}) {resto[:5]}-{resto[5:]}"
-            else: # Fixo
-                tel_formatado = f"({ddd}) {resto[:4]}-{resto[4:]}"
+        # Procuramos o padrão do parênteses do DDD como âncora
+        if '(' in linha:
+            # Separa o Nome (tudo antes do parênteses)
+            partes_nome = linha.split('(', 1)
+            nome_limpo = partes_nome[0].strip()
+            
+            # Separa o Telefone (o parênteses e tudo que vem depois)
+            # Removemos qualquer caractere que não seja número para a ação de ligar
+            resto_linha = partes_nome[1]
+            numeros_tel = "".join(re.findall(r'\d+', resto_linha))
+            
+            # Validação: Só aceita se tiver cara de número com DDD (10 ou 11 dígitos)
+            if 10 <= len(numeros_tel) <= 11:
+                # Formatação Visual para a tela
+                ddd = numeros_tel[:2]
+                corpo = numeros_tel[2:]
+                tel_formatado = f"({ddd}) {corpo[:5]}-{corpo[5:]}" if len(corpo) == 9 else f"({ddd}) {corpo[:4]}-{corpo[4:]}"
+                
+                lista_organizada.append({
+                    "Nome": nome_limpo if len(nome_limpo) > 2 else "Contato Identificado",
+                    "Telefone": tel_formatado,
+                    "Tel_Acao": numeros_tel,
+                    "Status": "Pendente"
+                })
 
-            # Tenta pegar o Nome (remove os números da linha para sobrar o texto)
-            nome_provavel = re.sub(r'\d+', '', linha).replace('(', '').replace(')', '').replace('-', '').strip()
-            # Se o nome for muito curto ou vazio, coloca "Contato Identificado"
-            nome_final = nome_provavel if len(nome_provavel) > 2 else "Lead via Foto"
-
-            lista_organizada.append({
-                "Nome/Info": nome_final[:30], # Limita tamanho para não quebrar layout
-                "Telefone": tel_formatado,
-                "Status": "Pendente",
-                "Tel_Limpo": numeros_apenas # Guardamos para o link do Zap
-            })
-
-    # Cria o DataFrame apenas com o que passou no filtro
-    if lista_organizada:
-        return pd.DataFrame(lista_organizada)
-    else:
-        return pd.DataFrame([{"Nome/Info": "Nenhum lead válido encontrado", "Telefone": "Verifique a foto", "Status": "Pendente", "Tel_Limpo": ""}])
+    return pd.DataFrame(lista_organizada) if lista_organizada else pd.DataFrame()
 
 # 1. Upload
-arquivo = st.file_uploader("Suba uma Foto, Excel ou CSV", type=["xlsx", "csv", "jpg", "png", "jpeg"])
+arquivo = st.file_uploader("Carregar Arquivo ou Foto", type=["xlsx", "csv", "jpg", "png", "jpeg"])
 
 if arquivo:
     if "dados" not in st.session_state:
         if arquivo.type in ["image/jpeg", "image/png"]:
-            with st.spinner("🤖 Escaneando e filtrando leads..."):
+            with st.spinner("Processando..."):
                 img = Image.open(arquivo)
-                st.session_state.dados = extrair_dados_da_foto(img)
+                df_extraido = extrair_dados_da_foto(img)
+                if df_extraido.empty:
+                    st.error("Nenhum lead com DDD entre parênteses '(' encontrado na imagem.")
+                    st.stop()
+                st.session_state.dados = df_extraido
         else:
-            # Lógica para Excel/CSV
             if arquivo.name.endswith('.csv'):
                 st.session_state.dados = pd.read_csv(arquivo)
             else:
                 st.session_state.dados = pd.read_excel(arquivo)
             if 'Status' not in st.session_state.dados.columns:
                 st.session_state.dados['Status'] = 'Pendente'
-        
         st.session_state.ponteiro = 0
 
     df = st.session_state.dados
@@ -81,25 +77,25 @@ if arquivo:
 
     # 2. Área de Trabalho
     if p < len(df):
-        st.info(f"📍 Lead {p + 1} de {len(df)}")
+        st.info(f"Lead {p + 1} de {len(df)}")
         contato = df.iloc[p]
         
         with st.container(border=True):
-            st.subheader(contato.get("Nome/Info", "Lead"))
+            st.subheader(contato.get("Nome", "Lead"))
             st.write(f"📞 **{contato.get('Telefone', 'Sem número')}**")
             
-            # Pega o número limpo (da planilha ou do OCR)
-            tel_acao = str(contato.get('Tel_Limpo', contato.get('Telefone', '')))
-            tel_acao = "".join(filter(str.isdigit, tel_acao))
+            # Extração de número puro para os botões
+            num_limpo = str(contato.get('Tel_Acao', contato.get('Telefone', '')))
+            num_limpo = "".join(filter(str.isdigit, num_limpo))
 
-            if len(tel_acao) >= 10:
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    st.markdown(f'''<a href="tel:{tel_acao}" style="text-decoration:none;">
+            if len(num_limpo) >= 10:
+                c_ligar, c_zap = st.columns(2)
+                with c_ligar:
+                    st.markdown(f'''<a href="tel:{num_limpo}" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:12px; font-weight:bold;">
                         📞 Ligar</button></a>''', unsafe_allow_html=True)
-                with col_b:
-                    st.markdown(f'''<a href="https://wa.me{tel_acao}" target="_blank" style="text-decoration:none;">
+                with c_zap:
+                    st.markdown(f'''<a href="https://wa.me{num_limpo}" target="_blank" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
 
@@ -121,8 +117,8 @@ if arquivo:
                 st.session_state.ponteiro += 1
                 st.rerun()
     else:
-        st.success("🏁 Fim da lista!")
-        if st.button("Recomeçar"):
+        st.success("Lista Concluída!")
+        if st.button("Reiniciar"):
             st.session_state.ponteiro = 0
             st.rerun()
 
@@ -130,7 +126,7 @@ if arquivo:
     st.divider()
     formato = st.radio("Exportar:", ["Excel", "PDF"], horizontal=True)
 
-    if st.button("💾 Baixar Relatório"):
+    if st.button("Gerar Relatório"):
         if formato == "Excel":
             output = BytesIO()
             def aplicar_cor(row):
@@ -138,7 +134,7 @@ if arquivo:
                 if row['Status'] == 'Descartado': return ['background-color: #FF7F7F'] * len(row)
                 return [''] * len(row)
             df.style.apply(aplicar_cor, axis=1).to_excel(output, index=False)
-            st.download_button("Download Excel", output.getvalue(), "leads_final.xlsx")
+            st.download_button("Download Excel", output.getvalue(), "resultado.xlsx")
         else:
             pdf = FPDF()
             pdf.add_page()
@@ -148,7 +144,6 @@ if arquivo:
             for _, row in df.iterrows():
                 cor = (0, 128, 0) if row['Status'] == 'Potencial' else (255, 0, 0) if row['Status'] == 'Descartado' else (0, 0, 0)
                 pdf.set_text_color(*cor)
-                texto = f"[{row['Status']}] {row.get('Nome/Info','')} - {row.get('Telefone','')}"
-                pdf.multi_cell(0, 8, texto, border=1)
-            st.download_button("Download PDF", bytes(pdf.output()), "leads.pdf")
-
+                texto = f"[{row['Status']}] {row.get('Nome','')} - {row.get('Telefone','')}"
+                pdf.multi_cell(0, 8, texto.encode('latin-1', 'ignore').decode('latin-1'), border=1)
+            st.download_button("Download PDF", bytes(pdf.output()), "resultado.pdf")
