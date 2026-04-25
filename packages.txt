@@ -1,2 +1,2 @@
 tesseract-ocr
-tesseract-orc-por
+tesseract-ocr-por
