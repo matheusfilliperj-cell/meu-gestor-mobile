@@ -2,38 +2,34 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from PIL import Image
-import easyocr
+import pytesseract
 from fpdf import FPDF
 from io import BytesIO
 import re
-
-# --- CONFIGURAÇÃO E CACHE DO LEITOR DE FOTOS ---
-@st.cache_resource
-def get_ocr_reader():
-    return easyocr.Reader(['pt'])
-
-def extrair_dados_da_foto(imagem):
-    reader = get_ocr_reader()
-    img_np = np.array(imagem)
-    resultado = reader.readtext(img_np, detail=0)
-    
-    # Tenta organizar o texto bagunçado da foto em uma tabela básica
-    # Ele busca padrões de números para tentar identificar o telefone
-    lista_organizada = []
-    for texto in resultado:
-        telefone = re.findall(r'\d+', texto)
-        tel_formatado = "".join(telefone) if telefone else ""
-        lista_organizada.append({
-            "Informação": texto,
-            "Telefone_Detectado": tel_formatado if len(tel_formatado) >= 8 else ""
-        })
-    return pd.DataFrame(lista_organizada)
 
 # --- INTERFACE ---
 st.set_page_config(page_title="Gestor Leads Pro", layout="centered")
 
 st.title("🚀 Gestor de Leads Inteligente")
 st.markdown("### Suporta Excel e Fotos (OCR)")
+
+# Função Leve para ler fotos
+def extrair_dados_da_foto(imagem):
+    # Converte imagem para texto usando Tesseract (Motor leve para nuvem)
+    texto_extraido = pytesseract.image_to_string(imagem, lang='por')
+    linhas = texto_extraido.split('\n')
+    
+    lista_organizada = []
+    for linha in linhas:
+        if linha.strip():
+            # Busca números de telefone na linha (regex)
+            telefone = re.findall(r'\d+', linha)
+            tel_formatado = "".join(telefone) if telefone else ""
+            lista_organizada.append({
+                "Informação": linha.strip(),
+                "Telefone_Detectado": tel_formatado if len(tel_formatado) >= 8 else ""
+            })
+    return pd.DataFrame(lista_organizada)
 
 # 1. Upload Multiformato
 arquivo = st.file_uploader("Suba uma Foto, Excel ou CSV", type=["xlsx", "csv", "jpg", "png", "jpeg"])
@@ -42,7 +38,7 @@ if arquivo:
     if "dados" not in st.session_state:
         # Lógica para Fotos
         if arquivo.type in ["image/jpeg", "image/png"]:
-            with st.spinner("🤖 IA escaneando a foto... aguarde."):
+            with st.spinner("🤖 Lendo texto da imagem..."):
                 img = Image.open(arquivo)
                 st.session_state.dados = extrair_dados_da_foto(img)
         
@@ -66,13 +62,12 @@ if arquivo:
         contato = df.iloc[p]
         
         with st.container(border=True):
-            # Exibe as informações da linha
+            # Exibe os dados da linha
             for col in df.columns:
                 if col != 'Status':
                     st.write(f"**{col}:** {contato[col]}")
             
-            # Limpeza do número para ação direta
-            # Tenta pegar o telefone da coluna específica ou de qualquer campo que tenha número
+            # Limpeza do telefone para os botões
             txt_para_tel = str(contato.get('Telefone', contato.get('Telefone_Detectado', '')))
             tel_limpo = "".join(filter(str.isdigit, txt_para_tel))
 
@@ -87,7 +82,7 @@ if arquivo:
                         <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
             else:
-                st.warning("⚠️ Nenhum telefone válido detectado nesta linha.")
+                st.warning("⚠️ Telefone não detectado nesta linha.")
 
         st.divider()
         
@@ -144,3 +139,8 @@ if arquivo:
             
             pdf_out = pdf.output()
             st.download_button("Download PDF", bytes(pdf_out), "leads_final.pdf")
+
+# Prévia no rodapé
+if arquivo:
+    with st.expander("Ver lista completa"):
+        st.dataframe(df)
