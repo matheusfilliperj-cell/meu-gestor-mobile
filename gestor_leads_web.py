@@ -1,65 +1,73 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 import pytesseract
 from io import BytesIO
 import re
 
 st.set_page_config(page_title="Gestor de Leads", layout="centered")
-st.title("Gestor de Leads")
 
-def extrair_dados_da_foto(imagem):
-    # Tratamento de imagem para remover sombras e sujeira
+def extrair_tabela_da_foto(imagem):
+    # 1. Tratamento para destacar o contraste das linhas
     imagem = ImageOps.grayscale(imagem)
-    imagem = ImageOps.autocontrast(imagem)
+    imagem = imagem.filter(ImageFilter.SHARPEN)
     
-    # Extração de texto puro (mais estável para evitar 'it. lt.')
-    texto_puro = pytesseract.image_to_string(imagem, lang='por')
+    # 2. Configuração para manter a estrutura de colunas (preserve_interword_spaces)
+    config_tess = "--psm 6" # Modo que assume um bloco de texto/tabela único
+    texto_puro = pytesseract.image_to_string(imagem, lang='por', config=config_tess)
     linhas = texto_puro.split('\n')
     
     lista_final = []
     
     for linha in linhas:
-        # 1. Filtra apenas os números da linha
-        nums_apenas = "".join(re.findall(r'\d+', linha))
+        # Extrai todos os números da linha
+        numeros_na_linha = "".join(re.findall(r'\d+', linha))
         
-        # 2. SÓ SEGUE SE TIVER UM NÚMERO DE 10 OU 11 DÍGITOS (DDD + Tel)
-        # Isso mata 100% dos "leads fantasmas" de sujeira
-        if 10 <= len(nums_apenas) <= 11:
-            # 3. Limpa o Nome: remove os números e símbolos da linha
-            nome = re.sub(r'[\d\(\)\-\.]+', '', linha).strip()
-            nome = nome if len(nome) > 2 else "Lead Identificado"
+        # Filtro: Só processa linhas que tenham um telefone (10 ou 11 dígitos)
+        if 10 <= len(numeros_na_linha) <= 12:
+            # Tenta separar por grandes espaços (comum em tabelas escaneadas)
+            partes = re.split(r'\s{2,}', linha.strip())
             
-            # 4. Formatação Visual
-            ddd = nums_apenas[:2]
-            resto = nums_apenas[2:]
-            tel_visual = f"({ddd}) {resto[:5]}-{resto[5:]}" if len(resto) == 9 else f"({ddd}) {resto[:4]}-{resto[4:]}"
-            
+            if len(partes) >= 2:
+                # Se tiver 3 ou mais partes, mapeia como Nome, Sobrenome e Tel
+                nome = partes[0]
+                sobrenome = partes[1] if len(partes) > 2 else ""
+                # O telefone é sempre a última parte numérica identificada
+                tel_visual = f"({numeros_na_linha[:2]}) {numeros_na_linha[2:]}"
+            else:
+                # Caso o OCR junte tudo, tentamos separar o texto do número no final
+                nome_bruto = re.sub(r'\d+', '', linha).replace('(', '').replace(')', '').replace('-', '').strip()
+                nome = nome_bruto.split()[0] if nome_bruto.split() else "Lead"
+                sobrenome = " ".join(nome_bruto.split()[1:]) if len(nome_bruto.split()) > 1 else ""
+                tel_visual = f"({numeros_na_linha[:2]}) {numeros_na_linha[2:]}"
+
             lista_final.append({
-                "Nome": nome[:40], # Nome limpo e curto
+                "Nome": nome.upper(),
+                "Sobrenome": sobrenome.upper(),
                 "Telefone": tel_visual,
-                "Tel_Acao": nums_apenas,
+                "Tel_Acao": numeros_na_linha[:11], # Limita a 11 dígitos
                 "Status": "Pendente"
             })
 
     return pd.DataFrame(lista_final)
 
 # --- INTERFACE DE TRABALHO ---
-arquivo = st.file_uploader("Carregar Lista ou Foto", type=["xlsx", "csv", "jpg", "png", "jpeg"])
+st.title("📞 Gestor de Leads")
+
+arquivo = st.file_uploader("Suba a Foto da Tabela ou Planilha", type=["xlsx", "csv", "jpg", "png", "jpeg"])
 
 if arquivo:
     if "dados" not in st.session_state:
         if arquivo.type in ["image/jpeg", "image/png"]:
-            with st.spinner("Processando..."):
+            with st.spinner("Analisando colunas da tabela..."):
                 img = Image.open(arquivo)
-                df_extraido = extrair_dados_da_foto(img)
-                if df_extraido.empty:
-                    st.error("Nenhum telefone com DDD detectado. Tente uma foto mais nítida.")
+                df_res = extrair_tabela_da_foto(img)
+                if df_res.empty:
+                    st.error("Não foi possível identificar a tabela. Tire a foto mais de perto.")
                     st.stop()
-                st.session_state.dados = df_extraido
+                st.session_state.dados = df_res
         else:
-            # Excel/CSV
             df_init = pd.read_excel(arquivo) if arquivo.name.endswith('.xlsx') else pd.read_csv(arquivo)
             st.session_state.dados = df_init
             if 'Status' not in st.session_state.dados.columns:
@@ -70,41 +78,39 @@ if arquivo:
     p = st.session_state.ponteiro
 
     if p < len(df):
-        st.markdown("---")
-        st.subheader(f"Lead #{p + 1}")
         contato = df.iloc[p]
+        st.markdown(f"### Lead #{p + 1}")
         
         with st.container(border=True):
-            st.write(f"👤 **NOME:** {contato.get('Nome', 'Não identificado')}")
-            st.write(f"📞 **TEL:** {contato.get('Telefone', 'Sem número')}")
+            st.subheader(f"{contato.get('Nome', '')} {contato.get('Sobrenome', '')}")
+            st.markdown(f"#### 📞 {contato.get('Telefone', 'Sem número')}")
             
-            # Pega o número puro para os botões
-            tel_puro = "".join(filter(str.isdigit, str(contato.get('Tel_Acao', contato.get('Telefone', '')))))
-            
-            if len(tel_puro) >= 10:
+            tel_btn = "".join(filter(str.isdigit, str(contato.get('Tel_Acao', ''))))
+
+            if len(tel_btn) >= 10:
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown(f'<a href="tel:{tel_puro}"><button style="width:100%; background-color:#25D366; color:white; border:none; padding:12px; border-radius:10px; font-weight:bold;">📞 Ligar</button></a>', unsafe_allow_html=True)
+                    st.markdown(f'<a href="tel:{tel_btn}"><button style="width:100%; height:50px; background-color:#28a745; color:white; border:none; border-radius:8px; font-weight:bold;">LIGAR</button></a>', unsafe_allow_html=True)
                 with c2:
-                    st.markdown(f'<a href="https://wa.me{tel_puro}"><button style="width:100%; background-color:#128C7E; color:white; border:none; padding:12px; border-radius:10px; font-weight:bold;">💬 WhatsApp</button></a>', unsafe_allow_html=True)
+                    st.markdown(f'<a href="https://wa.me{tel_btn}"><button style="width:100%; height:50px; background-color:#25d366; color:white; border:none; border-radius:8px; font-weight:bold;">WHATSAPP</button></a>', unsafe_allow_html=True)
 
-        st.markdown("---")
+        st.divider()
         col1, col2, col3 = st.columns(3)
         with col1:
-            if st.button("🟩 OK", use_container_width=True):
+            if st.button("🟩 POTENCIAL", use_container_width=True):
                 st.session_state.dados.at[p, 'Status'] = 'Potencial'; st.session_state.ponteiro += 1; st.rerun()
         with col2:
-            if st.button("🟥 SAIR", use_container_width=True):
+            if st.button("🟥 DESCARTAR", use_container_width=True):
                 st.session_state.dados.at[p, 'Status'] = 'Descartado'; st.session_state.ponteiro += 1; st.rerun()
         with col3:
-            if st.button("⏭️", use_container_width=True):
+            if st.button("⏭️ PULAR", use_container_width=True):
                 st.session_state.ponteiro += 1; st.rerun()
     else:
-        st.success("Lista Concluída!")
-        if st.button("Reiniciar"):
+        st.success("Lista Finalizada!")
+        if st.button("Recomeçar"):
             st.session_state.ponteiro = 0; st.rerun()
 
-    if st.button("Baixar Excel Final"):
+    if st.button("Baixar Excel Atualizado"):
         output = BytesIO()
         df.to_excel(output, index=False)
-        st.download_button("Clique aqui para Baixar", output.getvalue(), "resultado.xlsx")
+        st.download_button("Clique aqui para baixar", output.getvalue(), "leads_final.xlsx")
