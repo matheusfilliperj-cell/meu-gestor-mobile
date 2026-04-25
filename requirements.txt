@@ -2,7 +2,6 @@ streamlit
 pandas
 openpyxl
 fpdf2
-easyocr
-opencv-python-headless
+pytesseract
 Pillow
 numpy
