@@ -16,7 +16,7 @@ api_key = st.secrets["GEMINI_API_KEY"]
 if api_key:
     genai.configure(api_key=api_key)
     # Usando o modelo 1.5-flash que é ultra rápido para fotos
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 else:
     st.warning("⚠️ Insira sua API Key para liberar a leitura de fotos.")
 
