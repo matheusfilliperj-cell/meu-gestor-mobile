@@ -2,5 +2,6 @@ streamlit
 pandas
 openpyxl
 fpdf2
-google-generativeai
+pytesseract
 Pillow
+numpy
