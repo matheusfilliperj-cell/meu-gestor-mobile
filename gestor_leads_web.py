@@ -8,28 +8,24 @@ import re
 import json
 
 st.set_page_config(page_title="Gestor de Leads", layout="centered")
-st.title("Gestor de Leads Profissional")
+st.title("Gestor de Leads")
 
-# --- ÁREA DA CHAVE API ---
-# Cole a chave do Google AI Studio aqui
-api_key = st.text_input("Cole sua API Key do Google AI Studio aqui:", type="password")
+# --- BUSCA A CHAVE SALVA NAS SECRETS ---
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel('gemini-2.5-flash')
+except Exception as e:
+    st.error("Erro: A chave GEMINI_API_KEY não foi configurada nas Secrets do Streamlit.")
+    st.stop()
 
-if api_key:
-    genai.configure(api_key=api_key)
-    # Modelo otimizado para extração de dados em imagens
-    model = genai.GenerativeModel('gemini-1.5-flash')
-else:
-    st.warning("⚠️ Insira sua API Key para liberar a leitura de fotos.")
-
-# Função de Leitura Inteligente com Visão Computacional do Google
+# Função de Leitura Inteligente do Google
 def extrair_dados_com_ia(imagem):
     prompt = """
     Você é um leitor óptico de tabelas perfeito.
     Analise esta imagem e extraia os dados de contatos.
     Identifique cada linha horizontal da tabela.
-    Extraia o Nome, Sobrenome (se houver) e o Telefone que estão estritamente na mesma linha.
+    Extraia as informações de texto (Nome e Sobrenome) e o Telefone que estão estritamente na mesma linha.
     Mantenha a informação da mesma linha horizontal junta. Não misture o telefone de uma pessoa com o nome de outra.
-    Se houver distâncias consideráveis que separam informações horizontais, interprete como colunas e mantenha a separação lógica.
     Retorne o resultado estritamente no formato JSON abaixo, sem textos extras ou explicações:
     [
       {"Informação": "NOME SOBRENOME", "Telefone": "DDD + NÚMERO"},
@@ -39,18 +35,16 @@ def extrair_dados_com_ia(imagem):
     
     try:
         response = model.generate_content([prompt, imagem])
-        
-        # Limpeza para extrair apenas a parte do JSON
         texto_resposta = response.text
-        match = re.search(r'\[.*\]', texto_resposta, re.DOTALL)
         
+        # Filtro para pegar apenas o JSON da resposta
+        match = re.search(r'\[.*\]', texto_resposta, re.DOTALL)
         if match:
             dados_json = json.loads(match.group(0))
             return pd.DataFrame(dados_json)
         else:
             st.error("A IA não conseguiu estruturar os dados no formato esperado.")
             return pd.DataFrame()
-            
     except Exception as e:
         st.error(f"Erro na IA: {e}")
         return pd.DataFrame()
@@ -61,17 +55,13 @@ arquivo = st.file_uploader("Carregar Foto da Tabela ou Planilha", type=["xlsx", 
 if arquivo:
     if "dados" not in st.session_state:
         if arquivo.type in ["image/jpeg", "image/png"]:
-            if not api_key:
-                st.error("Insira a API Key primeiro!")
-                st.stop()
-            with st.spinner("🤖 A IA está lendo sua foto perfeitamente..."):
+            with st.spinner("Lendo foto..."):
                 img = Image.open(arquivo)
                 df_extraido = extrair_dados_com_ia(img)
                 if df_extraido.empty:
                     st.stop()
                 st.session_state.dados = df_extraido
         else:
-            # Lógica para Excel/CSV
             if arquivo.name.endswith('.csv'):
                 st.session_state.dados = pd.read_csv(arquivo)
             else:
@@ -96,7 +86,6 @@ if arquivo:
             st.write(f"👤 **Dados:** {info_atual}")
             
             tel_bruto = str(contato.get('Telefone', ''))
-            # Limpa o número para usar no link de ligar/zap
             tel_limpo = "".join(filter(str.isdigit, tel_bruto))
             
             st.write(f"📞 **Telefone:** {tel_bruto if tel_bruto else 'Não identificado'}")
@@ -113,22 +102,16 @@ if arquivo:
                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
 
         st.markdown("---")
-        
         col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("🟩 OK", use_container_width=True):
-                st.session_state.dados.at[p, 'Status'] = 'Potencial'
-                st.session_state.ponteiro += 1
-                st.rerun()
+                st.session_state.dados.at[p, 'Status'] = 'Potencial'; st.session_state.ponteiro += 1; st.rerun()
         with col2:
             if st.button("🟥 SAIR", use_container_width=True):
-                st.session_state.dados.at[p, 'Status'] = 'Descartado'
-                st.session_state.ponteiro += 1
-                st.rerun()
+                st.session_state.dados.at[p, 'Status'] = 'Descartado'; st.session_state.ponteiro += 1; st.rerun()
         with col3:
             if st.button("⏭️", use_container_width=True):
-                st.session_state.ponteiro += 1
-                st.rerun()
+                st.session_state.ponteiro += 1; st.rerun()
     else:
         st.success("Lista Concluída!")
         if st.button("Reiniciar"):
@@ -136,7 +119,6 @@ if arquivo:
 
     # 3. Exportação
     st.divider()
-    st.subheader("📥 Exportar Resultado")
     formato = st.radio("Escolha o formato:", ["Excel", "PDF"], horizontal=True)
 
     if st.button("💾 Gerar Arquivo Final"):
@@ -150,8 +132,8 @@ if arquivo:
             pdf.set_font("helvetica", "B", 14)
             pdf.cell(0, 10, "Relatorio de Leads", ln=True, align='C')
             pdf.ln(10)
-            
             pdf.set_font("helvetica", size=10)
+            
             for i, row in df.iterrows():
                 if row['Status'] == 'Potencial':
                     pdf.set_text_color(0, 128, 0)
@@ -162,9 +144,7 @@ if arquivo:
                 
                 info_texto = row.get('Informação', row.get('Nome', 'Sem dados'))
                 texto_linha = f"#{i+1} [{row['Status']}] - {info_texto}"
-                
                 pdf.multi_cell(0, 8, texto_linha.encode('latin-1', 'ignore').decode('latin-1'), border=1)
                 pdf.ln(2)
             
-            pdf_bytes = pdf.output()
-            st.download_button("Baixar PDF", bytes(pdf_bytes), "resultado.pdf")
+            st.download_button("Baixar PDF", bytes(pdf.output()), "resultado.pdf")
