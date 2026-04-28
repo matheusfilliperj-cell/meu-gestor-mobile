@@ -5,47 +5,48 @@ from fpdf import FPDF
 from io import BytesIO
 import google.generativeai as genai
 import json
+import re
 
 st.set_page_config(page_title="Gestor de Leads IA", layout="centered")
-
 st.title("🤖 Gestor de Leads com IA")
-st.markdown("### Leitura perfeita usando a Inteligência do Google")
 
-# --- ÁREA DA CHAVE API ---
-# Para testar, você cola sua chave aqui. Na nuvem, o ideal é usar as 'Secrets' do Streamlit.
+# 1. Configuração da Chave
 api_key = st.secrets["GEMINI_API_KEY"]
 
 if api_key:
     genai.configure(api_key=api_key)
-    # Usamos o modelo Flash que é rápido, inteligente e GRÁTIS
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    # Usando o modelo 1.5-flash que é ultra rápido para fotos
+    model = genai.GenerativeModel('gemini-1.5-flash')
 else:
     st.warning("⚠️ Insira sua API Key para liberar a leitura de fotos.")
 
-# Função de Leitura com IA
+# 2. Função de Leitura Inteligente e Rápida
 def extrair_dados_com_ia(imagem):
+    # Reduz o tamanho da imagem para enviar mais rápido
+    imagem.thumbnail((800, 800))
+    
     prompt = """
-    Você é um leitor óptico de tabelas perfeito.
-    Analise esta imagem e extraia os dados de contatos.
-    Para cada linha que contiver um nome e um telefone, extraia os dados.
-    Mantenha rigorosamente a informação da mesma linha horizontal junta. Não misture o telefone de uma pessoa com o nome de outra.
-    Retorne o resultado estritamente no formato JSON abaixo, sem textos extras ou explicações:
+    Analise esta imagem e extraia os dados de contatos em formato de tabela.
+    Mantenha rigorosamente a informação da mesma linha horizontal junta. 
+    Retorne o resultado estritamente no formato JSON abaixo, sem textos extras, sem saudações e sem aspas de bloco de código (```json):
     [
-      {"Nome": "NOME DO CLIENTE", "Telefone": "DDD + NÚMERO"},
-      {"Nome": "OUTRO NOME", "Telefone": "DDD + NÚMERO"}
+      {"Nome": "NOME COMPLETO", "Telefone": "DDD + NUMERO"}
     ]
-    Se o telefone não tiver DDD, tente inferir pelo contexto da página ou deixe apenas o número.
     """
     
     try:
-        # Envia a imagem e o texto pedindo o JSON
         response = model.generate_content([prompt, imagem])
+        texto_resposta = response.text
         
-        # Limpa o texto da resposta para garantir que seja um JSON válido
-        texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
-        dados_json = json.loads(texto_limpo)
-        
-        return pd.DataFrame(dados_json)
+        # Limpeza agressiva para pegar apenas o que está dentro dos colchetes [ ]
+        match = re.search(r'\[.*\]', texto_resposta, re.DOTALL)
+        if match:
+            dados_json = json.loads(match.group(0))
+            return pd.DataFrame(dados_json)
+        else:
+            st.error("A IA não gerou uma resposta no formato correto.")
+            return pd.DataFrame()
+            
     except Exception as e:
         st.error(f"Erro na IA: {e}")
         return pd.DataFrame()
