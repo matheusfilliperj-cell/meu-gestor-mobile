@@ -1,116 +1,148 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-from PIL import Image, ImageOps, ImageFilter
-import pytesseract
+from PIL import Image
+from fpdf import FPDF
 from io import BytesIO
-import re
+import google.generativeai as genai
+import json
 
-st.set_page_config(page_title="Gestor de Leads", layout="centered")
+st.set_page_config(page_title="Gestor de Leads IA", layout="centered")
 
-def extrair_tabela_da_foto(imagem):
-    # 1. Tratamento para destacar o contraste das linhas
-    imagem = ImageOps.grayscale(imagem)
-    imagem = imagem.filter(ImageFilter.SHARPEN)
+st.title("🤖 Gestor de Leads com IA")
+st.markdown("### Leitura perfeita usando a Inteligência do Google")
+
+# --- ÁREA DA CHAVE API ---
+# Para testar, você cola sua chave aqui. Na nuvem, o ideal é usar as 'Secrets' do Streamlit.
+api_key = st.text_input("Cole sua API Key do Google AI Studio aqui:", type="password")
+
+if api_key:
+    genai.configure(api_key=api_key)
+    # Usamos o modelo Flash que é rápido, inteligente e GRÁTIS
+    model = genai.GenerativeModel('gemini-2.5-flash')
+else:
+    st.warning("⚠️ Insira sua API Key para liberar a leitura de fotos.")
+
+# Função de Leitura com IA
+def extrair_dados_com_ia(imagem):
+    prompt = """
+    Você é um leitor óptico de tabelas perfeito.
+    Analise esta imagem e extraia os dados de contatos.
+    Para cada linha que contiver um nome e um telefone, extraia os dados.
+    Mantenha rigorosamente a informação da mesma linha horizontal junta. Não misture o telefone de uma pessoa com o nome de outra.
+    Retorne o resultado estritamente no formato JSON abaixo, sem textos extras ou explicações:
+    [
+      {"Nome": "NOME DO CLIENTE", "Telefone": "DDD + NÚMERO"},
+      {"Nome": "OUTRO NOME", "Telefone": "DDD + NÚMERO"}
+    ]
+    Se o telefone não tiver DDD, tente inferir pelo contexto da página ou deixe apenas o número.
+    """
     
-    # 2. Configuração para manter a estrutura de colunas (preserve_interword_spaces)
-    config_tess = "--psm 6" # Modo que assume um bloco de texto/tabela único
-    texto_puro = pytesseract.image_to_string(imagem, lang='por', config=config_tess)
-    linhas = texto_puro.split('\n')
-    
-    lista_final = []
-    
-    for linha in linhas:
-        # Extrai todos os números da linha
-        numeros_na_linha = "".join(re.findall(r'\d+', linha))
+    try:
+        # Envia a imagem e o texto pedindo o JSON
+        response = model.generate_content([prompt, imagem])
         
-        # Filtro: Só processa linhas que tenham um telefone (10 ou 11 dígitos)
-        if 10 <= len(numeros_na_linha) <= 12:
-            # Tenta separar por grandes espaços (comum em tabelas escaneadas)
-            partes = re.split(r'\s{2,}', linha.strip())
-            
-            if len(partes) >= 2:
-                # Se tiver 3 ou mais partes, mapeia como Nome, Sobrenome e Tel
-                nome = partes[0]
-                sobrenome = partes[1] if len(partes) > 2 else ""
-                # O telefone é sempre a última parte numérica identificada
-                tel_visual = f"({numeros_na_linha[:2]}) {numeros_na_linha[2:]}"
-            else:
-                # Caso o OCR junte tudo, tentamos separar o texto do número no final
-                nome_bruto = re.sub(r'\d+', '', linha).replace('(', '').replace(')', '').replace('-', '').strip()
-                nome = nome_bruto.split()[0] if nome_bruto.split() else "Lead"
-                sobrenome = " ".join(nome_bruto.split()[1:]) if len(nome_bruto.split()) > 1 else ""
-                tel_visual = f"({numeros_na_linha[:2]}) {numeros_na_linha[2:]}"
+        # Limpa o texto da resposta para garantir que seja um JSON válido
+        texto_limpo = response.text.replace("```json", "").replace("```", "").strip()
+        dados_json = json.loads(texto_limpo)
+        
+        return pd.DataFrame(dados_json)
+    except Exception as e:
+        st.error(f"Erro na IA: {e}")
+        return pd.DataFrame()
 
-            lista_final.append({
-                "Nome": nome.upper(),
-                "Sobrenome": sobrenome.upper(),
-                "Telefone": tel_visual,
-                "Tel_Acao": numeros_na_linha[:11], # Limita a 11 dígitos
-                "Status": "Pendente"
-            })
-
-    return pd.DataFrame(lista_final)
-
-# --- INTERFACE DE TRABALHO ---
-st.title("📞 Gestor de Leads")
-
-arquivo = st.file_uploader("Suba a Foto da Tabela ou Planilha", type=["xlsx", "csv", "jpg", "png", "jpeg"])
+# 1. Upload
+arquivo = st.file_uploader("Carregar Foto da Tabela ou Planilha", type=["xlsx", "csv", "jpg", "png", "jpeg"])
 
 if arquivo:
     if "dados" not in st.session_state:
         if arquivo.type in ["image/jpeg", "image/png"]:
-            with st.spinner("Analisando colunas da tabela..."):
+            if not api_key:
+                st.error("Insira a API Key primeiro!")
+                st.stop()
+            with st.spinner("🤖 O Gemini está lendo a sua foto com precisão..."):
                 img = Image.open(arquivo)
-                df_res = extrair_tabela_da_foto(img)
-                if df_res.empty:
-                    st.error("Não foi possível identificar a tabela. Tire a foto mais de perto.")
+                df_extraido = extrair_dados_com_ia(img)
+                if df_extraido.empty:
+                    st.error("A IA não conseguiu estruturar os dados. Tente uma foto mais nítida.")
                     st.stop()
-                st.session_state.dados = df_res
+                st.session_state.dados = df_extraido
         else:
-            df_init = pd.read_excel(arquivo) if arquivo.name.endswith('.xlsx') else pd.read_csv(arquivo)
-            st.session_state.dados = df_init
-            if 'Status' not in st.session_state.dados.columns:
-                st.session_state.dados['Status'] = 'Pendente'
+            # Lógica para Excel/CSV
+            if arquivo.name.endswith('.csv'):
+                st.session_state.dados = pd.read_csv(arquivo)
+            else:
+                st.session_state.dados = pd.read_excel(arquivo)
+        
+        if 'Status' not in st.session_state.dados.columns:
+            st.session_state.dados['Status'] = 'Pendente'
         st.session_state.ponteiro = 0
 
     df = st.session_state.dados
     p = st.session_state.ponteiro
 
+    # 2. Área de Trabalho (Lead por Lead)
     if p < len(df):
+        st.info(f"Lead {p + 1} de {len(df)}")
         contato = df.iloc[p]
-        st.markdown(f"### Lead #{p + 1}")
         
         with st.container(border=True):
-            st.subheader(f"{contato.get('Nome', '')} {contato.get('Sobrenome', '')}")
-            st.markdown(f"#### 📞 {contato.get('Telefone', 'Sem número')}")
+            st.subheader(contato.get("Nome", "Cliente"))
+            st.write(f"📞 **{contato.get('Telefone', 'Sem número')}**")
             
-            tel_btn = "".join(filter(str.isdigit, str(contato.get('Tel_Acao', ''))))
+            # Limpeza do telefone para os botões
+            tel_bruto = str(contato.get('Telefone', ''))
+            tel_limpo = "".join(filter(str.isdigit, tel_bruto))
 
-            if len(tel_btn) >= 10:
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown(f'<a href="tel:{tel_btn}"><button style="width:100%; height:50px; background-color:#28a745; color:white; border:none; border-radius:8px; font-weight:bold;">LIGAR</button></a>', unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f'<a href="https://wa.me{tel_btn}"><button style="width:100%; height:50px; background-color:#25d366; color:white; border:none; border-radius:8px; font-weight:bold;">WHATSAPP</button></a>', unsafe_allow_html=True)
+            if len(tel_limpo) >= 8:
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown(f'''<a href="tel:{tel_limpo}" style="text-decoration:none;">
+                        <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:12px; font-weight:bold;">
+                        📞 Ligar</button></a>''', unsafe_allow_html=True)
+                with col_b:
+                    st.markdown(f'''<a href="https://wa.me{tel_limpo}" target="_blank" style="text-decoration:none;">
+                        <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
+                        💬 WhatsApp</button></a>''', unsafe_allow_html=True)
 
         st.divider()
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            if st.button("🟩 POTENCIAL", use_container_width=True):
+        
+        # Botões de Status
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("🟩 OK", use_container_width=True):
                 st.session_state.dados.at[p, 'Status'] = 'Potencial'; st.session_state.ponteiro += 1; st.rerun()
-        with col2:
-            if st.button("🟥 DESCARTAR", use_container_width=True):
+        with c2:
+            if st.button("🟥 SAIR", use_container_width=True):
                 st.session_state.dados.at[p, 'Status'] = 'Descartado'; st.session_state.ponteiro += 1; st.rerun()
-        with col3:
-            if st.button("⏭️ PULAR", use_container_width=True):
+        with c3:
+            if st.button("⏭️", use_container_width=True):
                 st.session_state.ponteiro += 1; st.rerun()
     else:
-        st.success("Lista Finalizada!")
+        st.success("Lista Concluída!")
         if st.button("Recomeçar"):
             st.session_state.ponteiro = 0; st.rerun()
 
-    if st.button("Baixar Excel Atualizado"):
-        output = BytesIO()
-        df.to_excel(output, index=False)
-        st.download_button("Clique aqui para baixar", output.getvalue(), "leads_final.xlsx")
+    # 3. Exportação (Excel e PDF)
+    st.divider()
+    formato = st.radio("Exportar em:", ["Excel", "PDF"], horizontal=True)
+
+    if st.button("Gerar Arquivo Final"):
+        if formato == "Excel":
+            output = BytesIO()
+            df.to_excel(output, index=False)
+            st.download_button("Baixar Excel", output.getvalue(), "leads.xlsx")
+        else:
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("helvetica", "B", 14)
+            pdf.cell(0, 10, "Relatório de Leads", ln=True, align='C')
+            pdf.ln(10)
+            pdf.set_font("helvetica", size=10)
+            
+            for _, row in df.iterrows():
+                cor = (0, 128, 0) if row['Status'] == 'Potencial' else (255, 0, 0) if row['Status'] == 'Descartado' else (0, 0, 0)
+                pdf.set_text_color(*cor)
+                texto = f"[{row['Status']}] {row.get('Nome','')} - {row.get('Telefone','')}"
+                pdf.multi_cell(0, 8, texto.encode('latin-1', 'ignore').decode('latin-1'), border=1)
+            
+            st.download_button("Baixar PDF", bytes(pdf.output()), "leads.pdf")
