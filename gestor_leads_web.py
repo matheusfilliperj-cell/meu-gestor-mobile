@@ -13,7 +13,7 @@ st.markdown("### Leitura perfeita usando a Inteligência do Google")
 
 # --- ÁREA DA CHAVE API ---
 # Para testar, você cola sua chave aqui. Na nuvem, o ideal é usar as 'Secrets' do Streamlit.
-api_key = st.text_input("Cole sua API Key do Google AI Studio aqui:", type="password")
+api_key = st.secrets["GEMINI_API_KEY"]
 
 if api_key:
     genai.configure(api_key=api_key)
