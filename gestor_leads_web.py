@@ -1,98 +1,85 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image, ImageOps, ImageFilter
-import pytesseract
+from PIL import Image
 from fpdf import FPDF
 from io import BytesIO
+import google.generativeai as genai
 import re
+import json
 
 st.set_page_config(page_title="Gestor de Leads", layout="centered")
-st.title("Gestor de Leads")
+st.title("Gestor de Leads Profissional")
 
-# Função que lê a linha inteira e calcula a distância em pixels
-def extrair_linhas_espacadas(imagem):
-    # Tratamento pesado para contraste
-    imagem = ImageOps.grayscale(imagem)
-    imagem = imagem.filter(ImageFilter.SHARPEN)
-    
-    # Pegamos os dados detalhados do OCR (inclui posição X, Y e largura)
-    dados_ocr = pytesseract.image_to_data(imagem, lang='por', output_type=pytesseract.Output.DICT)
-    
-    n_boxes = len(dados_ocr['text'])
-    linhas_agrupadas = {}
+# --- ÁREA DA CHAVE API ---
+# Cole a chave do Google AI Studio aqui
+api_key = st.text_input("Cole sua API Key do Google AI Studio aqui:", type="password")
 
-    for i in range(n_boxes):
-        confianca = int(dados_ocr['conf'][i])
-        texto = dados_ocr['text'][i].strip()
-        
-        # Só processa se a IA tiver certeza do que leu e se não for vazio
-        if confianca > 30 and texto:
-            top = dados_ocr['top'][i]
-            left = dados_ocr['left'][i]
-            width = dados_ocr['width'][i]
-            
-            # Agrupa palavras que estão na mesma altura (margem de 15 pixels)
-            y_linha = top // 15 
-            
-            if y_linha not in linhas_agrupadas:
-                linhas_agrupadas[y_linha] = []
-                
-            linhas_agrupadas[y_linha].append({
-                'texto': texto,
-                'left': left,
-                'right': left + width
-            })
+if api_key:
+    genai.configure(api_key=api_key)
+    # Modelo otimizado para extração de dados em imagens
+    model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    st.warning("⚠️ Insira sua API Key para liberar a leitura de fotos.")
 
-    lista_final = []
+# Função de Leitura Inteligente com Visão Computacional do Google
+def extrair_dados_com_ia(imagem):
+    prompt = """
+    Você é um leitor óptico de tabelas perfeito.
+    Analise esta imagem e extraia os dados de contatos.
+    Identifique cada linha horizontal da tabela.
+    Extraia o Nome, Sobrenome (se houver) e o Telefone que estão estritamente na mesma linha.
+    Mantenha a informação da mesma linha horizontal junta. Não misture o telefone de uma pessoa com o nome de outra.
+    Se houver distâncias consideráveis que separam informações horizontais, interprete como colunas e mantenha a separação lógica.
+    Retorne o resultado estritamente no formato JSON abaixo, sem textos extras ou explicações:
+    [
+      {"Informação": "NOME SOBRENOME", "Telefone": "DDD + NÚMERO"},
+      {"Informação": "OUTRO NOME", "Telefone": "DDD + NÚMERO"}
+    ]
+    """
     
-    # Processa cada linha horizontal encontrada
-    for y in sorted(linhas_agrupadas.keys()):
-        palavras_da_linha = linhas_agrupadas[y]
-        # Ordena as palavras da esquerda para a direita
-        palavras_da_linha.sort(key=lambda k: k['left'])
+    try:
+        response = model.generate_content([prompt, imagem])
         
-        linha_construida = ""
+        # Limpeza para extrair apenas a parte do JSON
+        texto_resposta = response.text
+        match = re.search(r'\[.*\]', texto_resposta, re.DOTALL)
         
-        for idx in range(len(palavras_da_linha)):
-            palavra_atual = palavras_da_linha[idx]
-            linha_construida += palavra_atual['texto']
+        if match:
+            dados_json = json.loads(match.group(0))
+            return pd.DataFrame(dados_json)
+        else:
+            st.error("A IA não conseguiu estruturar os dados no formato esperado.")
+            return pd.DataFrame()
             
-            # Se não for a última palavra, calcula a distância para a próxima
-            if idx < len(palavras_da_linha) - 1:
-                proxima_palavra = palavras_da_linha[idx + 1]
-                distancia_pixels = proxima_palavra['left'] - palavra_atual['right']
-                
-                # SE A DISTÂNCIA FOR MAIOR QUE 50 PIXELS, COLOCA UM ESPAÇO GRANDE
-                if distancia_pixels > 50:
-                    linha_construida += "   |   " # Marcador visual de coluna
-                else:
-                    linha_construida += " "
-                    
-        if len(linha_construida.strip()) > 5:
-            lista_final.append({
-                "Informação": linha_construida.strip(),
-                "Status": "Pendente"
-            })
-            
-    return pd.DataFrame(lista_final)
+    except Exception as e:
+        st.error(f"Erro na IA: {e}")
+        return pd.DataFrame()
 
 # 1. Upload
-arquivo = st.file_uploader("Carregar Foto ou Planilha", type=["xlsx", "csv", "jpg", "png", "jpeg"])
+arquivo = st.file_uploader("Carregar Foto da Tabela ou Planilha", type=["xlsx", "csv", "jpg", "png", "jpeg"])
 
 if arquivo:
     if "dados" not in st.session_state:
         if arquivo.type in ["image/jpeg", "image/png"]:
-            with st.spinner("Analisando distâncias e lendo linhas..."):
+            if not api_key:
+                st.error("Insira a API Key primeiro!")
+                st.stop()
+            with st.spinner("🤖 A IA está lendo sua foto perfeitamente..."):
                 img = Image.open(arquivo)
-                df_extraido = extrair_linhas_espacadas(img)
+                df_extraido = extrair_dados_com_ia(img)
                 if df_extraido.empty:
-                    st.error("Nenhum texto detectado. Tente uma foto mais clara.")
                     st.stop()
                 st.session_state.dados = df_extraido
         else:
-            st.session_state.dados = pd.read_excel(arquivo) if arquivo.name.endswith('.xlsx') else pd.read_csv(arquivo)
+            # Lógica para Excel/CSV
+            if arquivo.name.endswith('.csv'):
+                st.session_state.dados = pd.read_csv(arquivo)
+            else:
+                st.session_state.dados = pd.read_excel(arquivo)
+                
             if 'Status' not in st.session_state.dados.columns:
                 st.session_state.dados['Status'] = 'Pendente'
+                
         st.session_state.ponteiro = 0
 
     df = st.session_state.dados
@@ -106,25 +93,24 @@ if arquivo:
         contato = df.iloc[p]
         with st.container(border=True):
             info_atual = contato.get('Informação', contato.get('Nome', 'Sem dados'))
-            st.write(f"📄 **Dados da Linha:** {info_atual}")
+            st.write(f"👤 **Dados:** {info_atual}")
             
-            # Busca sequências numéricas para ativar os botões
-            numeros_isolados = "".join(re.findall(r'\d+', str(info_atual)))
+            tel_bruto = str(contato.get('Telefone', ''))
+            # Limpa o número para usar no link de ligar/zap
+            tel_limpo = "".join(filter(str.isdigit, tel_bruto))
             
-            if len(numeros_isolados) >= 8:
-                st.success(f"📞 Número Detectado: {numeros_isolados}")
-                
+            st.write(f"📞 **Telefone:** {tel_bruto if tel_bruto else 'Não identificado'}")
+
+            if len(tel_limpo) >= 8:
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.markdown(f'''<a href="tel:{numeros_isolados}" style="text-decoration:none;">
+                    st.markdown(f'''<a href="tel:{tel_limpo}" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:12px; font-weight:bold;">
                         📞 Ligar</button></a>''', unsafe_allow_html=True)
                 with c2:
-                    st.markdown(f'''<a href="https://wa.me{numeros_isolados}" target="_blank" style="text-decoration:none;">
+                    st.markdown(f'''<a href="https://wa.me{tel_limpo}" target="_blank" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
-            else:
-                st.warning("⚠️ O leitor não identificou uma sequência numérica válida para discagem nesta linha.")
 
         st.markdown("---")
         
@@ -157,7 +143,7 @@ if arquivo:
         if formato == "Excel":
             output = BytesIO()
             df.to_excel(output, index=False)
-            st.download_button("Baixar Excel", output.getvalue(), "leads_final.xlsx")
+            st.download_button("Baixar Excel", output.getvalue(), "resultado.xlsx")
         else:
             pdf = FPDF()
             pdf.add_page()
@@ -181,4 +167,4 @@ if arquivo:
                 pdf.ln(2)
             
             pdf_bytes = pdf.output()
-            st.download_button("Baixar PDF", bytes(pdf_bytes), "leads_final.pdf")
+            st.download_button("Baixar PDF", bytes(pdf_bytes), "resultado.pdf")
