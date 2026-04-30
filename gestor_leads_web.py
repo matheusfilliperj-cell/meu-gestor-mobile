@@ -97,7 +97,7 @@ if arquivo:
                         <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:12px; font-weight:bold;">
                         📞 Ligar</button></a>''', unsafe_allow_html=True)
                 with c2:
-                    st.markdown(f'''<a href="https://wa.me/55{tel_limpo}?Olá,%20me%20chamo%20Matheus%20Scheid%20e%20vou%20te%20ajudar%20a%20conquistar%20seu%20primeiro%20imóvel%E2%9C%85" target="_blank" style="text-decoration:none;">
+                    st.markdown(f'''<a href="https://wa.me/55{tel_limpo}?text=Olá,%20me%20chamo%20Matheus%20Scheid%20e%20vou%20te%20ajudar%20a%20conquistar%20seu%20primeiro%20imóvel%E2%9C%85" target="_blank" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
 
