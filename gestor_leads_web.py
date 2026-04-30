@@ -97,7 +97,7 @@ if arquivo:
                         <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:12px; font-weight:bold;">
                         📞 Ligar</button></a>''', unsafe_allow_html=True)
                 with c2:
-                    st.markdown(f'''<a href="https://wa.me{tel_limpo}" target="_blank" style="text-decoration:none;">
+                    st.markdown(f'''<a href="https://wa.me/55{tel_limpo}" target="_blank" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
 
