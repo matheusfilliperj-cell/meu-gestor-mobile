@@ -9,9 +9,6 @@ import json
 
 st.set_page_config(page_title="Gestor de Leads", layout="centered")
 st.title("Gestor de Leads")
-st.title("Oi!, -nome! Tudo certo? Aqui é o Matheus Scheid, consultor da Direcional. Conferi aqui no sistema que se interessou em adqurir um imóvel com a gente, conseguiu?")
-st.title("Eu consigo te ajudar com boas condições promocionais agora. O ideal é a gente marcar uma visita pra tu conhecer e já sair com uma simulação pronta de forma totalmente gratuita e sem compromisso. Estaria livre -dia?")
-st.title("👉 Se não: “Tranquilo, então te mando tudo pelo WhatsApp pra adiantar, podemos adiantar a simulação de forma completante online, o que acha?. Posso te chamar por lá?”")
 
 # --- BUSCA A CHAVE SALVA NAS SECRETS ---
 try:
