@@ -95,11 +95,11 @@ if arquivo:
                 with c1:
                     st.markdown(f'''<a href="tel:{tel_limpo}" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#25D366; color:white; border:none; padding:12px; font-weight:bold;">
-                         Ligar</button></a>''', unsafe_allow_html=True)
+                         📞 Ligar</button></a>''', unsafe_allow_html=True)
                 with c2:
-                    # st.markdown(f'''<a href="https://wa.me/55{tel_limpo}?text=Oi!%20Tudo%20bem%3F%20Eu%20me%20chamo%20Matheus%2C%20sou%20corretor%20de%20imóveis%20e%20vi%20aqui%20no%20sistema%20que%20se%20interessou%20por%20um%2C%20por%20isso%2C%20gostaria%20de%20fazer%20algumas%20perguntas%3A" target="_blank" style="text-decoration:none;">
+                    st.markdown(f'''<a href="https://wa.me/55{tel_limpo}?text=Oi!%20Tudo%20bem%3F%20Eu%20me%20chamo%20Matheus%2C%20sou%20corretor%20de%20imóveis%20e%20vi%20aqui%20no%20sistema%20que%20se%20interessou%20por%20um%2C%20por%20isso%2C%20gostaria%20de%20fazer%20algumas%20perguntas%3A" target="_blank" style="text-decoration:none;">
                         <button style="width:100%; border-radius:10px; background-color:#128C7E; color:white; border:none; padding:12px; font-weight:bold;">
-                         WhatsApp</button></a>''', unsafe_allow_html=True)
+                         💬 WhatsApp</button></a>''', unsafe_allow_html=True)
 
         st.markdown("---")
         col1, col2, col3 = st.columns(3)
